@@ -9,6 +9,8 @@ from OpenGL.GL import *
 import numpy as np
 import pandas as pd
 
+import distinctipy as dp
+
 def compute_outcode(x, y, xmin, xmax, ymin, ymax):
     """Compute the outcode for a point (x, y) against a rectangle."""
     INSIDE = 0  # 0000
@@ -36,7 +38,7 @@ def cohen_sutherland_line_clip(x0, y0, x1, y1, xmin, xmax, ymin, ymax):
     outcode0 = compute_outcode(x0, y0, xmin, xmax, ymin, ymax)
     outcode1 = compute_outcode(x1, y1, xmin, xmax, ymin, ymax)
 
-    max_iterations = 100
+    max_iterations = 10
     iterations = 0  # Initialize iteration counter
 
     while iterations < max_iterations:
@@ -109,7 +111,8 @@ class OpenGLPlot(QOpenGLWidget):
         self.unique_classes = self.classes.unique()
 
         # Generate unique colors for each class
-        self.colors = np.linspace(0.1, 0.9, len(self.unique_classes))
+        #self.colors = np.linspace(0.1, 0.9, len(self.unique_classes))
+        self.colors = dp.get_colors(len(self.unique_classes))
         
         # Compute minima and maxima for each class
         self.envelope_min = self.data.groupby(self.classes).min()
@@ -128,7 +131,7 @@ class OpenGLPlot(QOpenGLWidget):
 
     def get_color_for_class(self, class_label):
         idx = np.where(self.unique_classes == class_label)[0][0]
-        return (self.colors[idx], 0.5, 1 - self.colors[idx])
+        return self.colors[idx]
 
     def initializeGL(self):
         glClearColor(0.85, 0.85, 0.85, 1)
@@ -458,7 +461,7 @@ class MainWindow(QMainWindow):
     
     def load_csv_file(self):
         options = QFileDialog.Option.ReadOnly
-        file_name, _ = QFileDialog.getOpenFileName(self, "Open CSV File", "", "CSV Files (*.csv);;All Files (*)", options=options)
+        file_name, _ = QFileDialog.getOpenFileName(self, "Open CSV File", "datasets", "CSV Files (*.csv);;All Files (*)", options=options)
         if file_name:
             # Load your CSV data here using file_name
             print(f"Loading {file_name}")
