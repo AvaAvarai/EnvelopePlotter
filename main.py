@@ -9,6 +9,71 @@ from OpenGL.GL import *
 import numpy as np
 import pandas as pd
 
+def compute_outcode(x, y, xmin, xmax, ymin, ymax):
+    """Compute the outcode for a point (x, y) against a rectangle."""
+    INSIDE = 0  # 0000
+    LEFT = 1    # 0001
+    RIGHT = 2   # 0010
+    BOTTOM = 4  # 0100
+    TOP = 8     # 1000
+
+    code = INSIDE
+    if x < xmin:
+        code |= LEFT
+    elif x > xmax:
+        code |= RIGHT
+    if y < ymin:
+        code |= BOTTOM
+    elif y > ymax:
+        code |= TOP
+
+    return code
+
+def cohen_sutherland_line_clip(x0, y0, x1, y1, xmin, xmax, ymin, ymax):
+    """Clip a line segment using the Cohen-Sutherland algorithm."""
+
+    # Compute outcodes
+    outcode0 = compute_outcode(x0, y0, xmin, xmax, ymin, ymax)
+    outcode1 = compute_outcode(x1, y1, xmin, xmax, ymin, ymax)
+
+    max_iterations = 100
+    iterations = 0  # Initialize iteration counter
+
+    while iterations < max_iterations:
+        iterations += 1
+        if not (outcode0 | outcode1):  # Trivially accept
+            return True
+        elif outcode0 & outcode1:     # Trivially reject
+            return False
+        else:
+            x, y = 0.0, 0.0  # Point of intersection
+            # Pick an outcode to work on
+            if outcode0 != 0:
+                outcode_out = outcode0
+            else:
+                outcode_out = outcode1
+
+            if outcode_out & compute_outcode(0, 0, 0, 0, ymin, ymax):  # Top
+                x = x0 + (x1 - x0) * (ymax - y0) / (y1 - y0)
+                y = ymax
+            elif outcode_out & compute_outcode(0, 0, 0, 0, 0, ymax):   # Bottom
+                x = x0 + (x1 - x0) * (ymin - y0) / (y1 - y0)
+                y = ymin
+            elif outcode_out & compute_outcode(0, 0, xmin, 0, 0, 0):   # Right
+                y = y0 + (y1 - y0) * (xmax - x0) / (x1 - x0)
+                x = xmax
+            elif outcode_out & compute_outcode(0, 0, 0, xmax, 0, 0):   # Left
+                y = y0 + (y1 - y0) * (xmin - x0) / (x1 - x0)
+                x = xmin
+
+            if outcode_out == outcode0:
+                x0, y0 = x, y
+                outcode0 = compute_outcode(x0, y0, xmin, xmax, ymin, ymax)
+            else:
+                x1, y1 = x, y
+                outcode1 = compute_outcode(x1, y1, xmin, xmax, ymin, ymax)
+
+    return False  # Default return, shouldn't reach here
 
 class OpenGLPlot(QOpenGLWidget):
     def __init__(self, parent=None):
@@ -69,6 +134,7 @@ class OpenGLPlot(QOpenGLWidget):
         glClearColor(0.85, 0.85, 0.85, 1)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        glOrtho(-1, 1, 0, 1, 1, -1)
         glEnable(GL_LINE_SMOOTH)
         glHint(GL_LINE_SMOOTH_HINT, GL_NICEST)
 
@@ -84,10 +150,10 @@ class OpenGLPlot(QOpenGLWidget):
 
         # Define margins
         x_margin = 0.2
-        y_margin = 0.1
+        y_margin = 0.05
         x_min = -1 + x_margin
         x_max = 1 - x_margin
-        y_min = -1 + y_margin
+        y_min = y_margin
         y_max = 1 - y_margin
 
         # Adjust axis_gap for x_margin
@@ -217,6 +283,111 @@ class OpenGLPlot(QOpenGLWidget):
         glViewport(0, 0, w, h)
 
 
+class ModifiedOpenGLPlot(OpenGLPlot):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Attributes to store the mouse position and circle radius
+        self.mouse_pos = None
+        self.search_radius = 0.025
+
+    def calculate_percentages_inside_rectangle(self):
+        center_x, center_y = self.mouse_pos
+        axis_count = self.data.shape[1]
+        axis_positions = np.linspace(-1, 1, axis_count)
+
+        # Define the rectangle bounds based on center and search radius
+        rect_left = center_x - self.search_radius
+        rect_right = center_x + self.search_radius
+        rect_bottom = center_y - self.search_radius
+        rect_top = center_y + self.search_radius
+
+        intersecting_lines = []
+        
+        for idx, row in self.data.iterrows():
+            intersects = False
+            for i in range(axis_count - 1):
+                x0, y0 = axis_positions[i], row[i]
+                x1, y1 = axis_positions[i + 1], row[i + 1]
+
+                # Check if the line segment intersects the rectangle
+                if cohen_sutherland_line_clip(x0, y0, x1, y1, rect_left, rect_right, rect_bottom, rect_top):
+                    intersects = True
+                    break
+
+            if intersects:
+                intersecting_lines.append(idx)
+
+        # Count the data points inside the rectangle for each class
+        intersecting_classes = self.classes[intersecting_lines]
+        class_counts = intersecting_classes.value_counts()
+
+        total_counts = self.classes.value_counts()
+        percentages = (class_counts / total_counts).fillna(0) * 100
+
+        for class_name, percentage in percentages.items():
+            if percentage > 0:
+                print(f"{class_name}: {percentage:.2f}%")
+
+    def mouseMoveEvent(self, event):
+        # Define margins
+        x_margin = 0.2
+        x_min = -1 + x_margin
+        x_max = 1 - x_margin
+        y_min = -1
+        y_max = 1
+
+        # Convert pixel coordinates to the range [0, 1]
+        norm_x = event.position().x() / self.width()
+        norm_y = 1 - event.position().y() / self.height()
+
+        # Map the normalized coordinates to the world space (considering the margins)
+        x = x_min + norm_x * (x_max - x_min)
+        y = y_min + norm_y * (y_max - y_min)
+        
+        self.mouse_pos = (x, y)
+                
+        # Trigger a repaint
+        self.update()
+        self.calculate_percentages_inside_rectangle()
+
+    def paintGL(self):
+        # Call the parent's paintGL method to draw the existing elements
+        super().paintGL()
+
+        # If mouse_pos is not None, draw the circle
+        if self.mouse_pos:
+            self.draw_rectangle(self.mouse_pos, self.search_radius)
+            self.draw_crosshair(self.mouse_pos)
+
+    def draw_crosshair(self, center):
+        """Draw a small crosshair at the center of the circle."""
+        glDisable(GL_DEPTH_TEST)
+        aspect_ratio = self.width() / self.height()
+        size = 0.01  # Size of the crosshair lines
+            
+        glColor3f(1, 0, 0)  # Red color for the crosshair
+        glBegin(GL_LINES)
+        glVertex2f(center[0] - size, center[1])
+        glVertex2f(center[0] + size, center[1])
+        glVertex2f(center[0], center[1] - size)
+        glVertex2f(center[0], center[1] + size)
+        glEnd()
+        glEnable(GL_DEPTH_TEST)
+
+    def draw_rectangle(self, center, half_side_length):
+        """Draw a filled square rectangle around the given center with the specified half side length, compensating for aspect ratio."""
+        x, y = center
+        
+        # Since the width is greater than the height, we'll adjust the height to appear correctly.
+        bottom_left_x = x - half_side_length
+        bottom_left_y = y - half_side_length
+        top_right_x = x + half_side_length
+        top_right_y = y + half_side_length
+
+        glColor4f(0.5, 0.5, 0.5, 0.5)  # Semi-transparent gray for shading
+        glRectf(bottom_left_x, bottom_left_y, top_right_x, top_right_y)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -228,7 +399,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
 
         # Add OpenGL context
-        self.opengl_widget = OpenGLPlot(self)
+        self.opengl_widget = ModifiedOpenGLPlot(self)
         layout.addWidget(self.opengl_widget)
 
         # Create the buttons
