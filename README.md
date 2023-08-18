@@ -8,3 +8,6 @@ Plot examples of Wisconsin Breast Cancer Diagnosis dataset.
 
 Exploring the Fisher Iris dataset Setosa class.
 ![Iris datasaet explore](wip3.png)
+
+MNIST dataset of capital letters in English.
+![MNIST datasaet explore](wip4.png)

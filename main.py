@@ -244,7 +244,7 @@ class OpenGLPlot(QOpenGLWidget):
                 r, g, b = self.get_color_for_class(class_label)
                 
                 # Draw the shaded envelope area using triangles
-                glColor4f(r, g, b, 0.2)  # Very slightly transparent for shading
+                glColor4f(r, g, b, 0.1)  # Very slightly transparent for shading
                 
                 for i in range(self.data.shape[1] - 1):
                     # Define the four points for this segment of the envelope
