@@ -326,14 +326,12 @@ class ModifiedOpenGLPlot(OpenGLPlot):
         percentages = (class_counts / total_counts).fillna(0) * 100
 
         for class_name, percentage in percentages.items():
-            if percentage > 0:
-                print(f"{class_name}: {percentage:.2f}%")
+            print(f"{class_name}: {percentage:.2f}%")
 
     def mouseMoveEvent(self, event):
         # Define margins
-        x_margin = 0.2
-        x_min = -1 + x_margin
-        x_max = 1 - x_margin
+        x_min = -1
+        x_max = 1
         y_min = 0
         y_max = 1
 
