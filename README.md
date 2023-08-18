@@ -2,4 +2,6 @@
 
 Parallel Coordinates visualization tool for multivariate CSV data and envelope exploration. WIP
 
-![Iris datasaet plot](wip1.png)
+Plot examples of Wisconsin Breast Cancer Diagnosis dataset.
+![WBC datasaet plot](wip1.png)
+![WBC datasaet envelope](wip2.png)

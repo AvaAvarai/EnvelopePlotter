@@ -17,6 +17,12 @@ class OpenGLPlot(QOpenGLWidget):
         self.classes = pd.Series()
         self.unique_classes = []
         self.colors = []
+        
+        # Additional storage for envelope minima and maxima
+        self.envelope_min = pd.DataFrame()
+        self.envelope_max = pd.DataFrame()
+
+        self.show_envelope = False  # Initially set to not show the envelope
 
     def load_data(self, file_name):
         dataset = pd.read_csv(file_name)
@@ -39,12 +45,21 @@ class OpenGLPlot(QOpenGLWidget):
 
         # Generate unique colors for each class
         self.colors = np.linspace(0.1, 0.9, len(self.unique_classes))
+        
+        # Compute minima and maxima for each class
+        self.envelope_min = self.data.groupby(self.classes).min()
+        self.envelope_max = self.data.groupby(self.classes).max()
 
         self.normalize_data()
         self.update()
 
     def normalize_data(self):
-        self.data = (self.data - self.data.min()) / (self.data.max() - self.data.min())
+        min_val = self.data.min()
+        max_val = self.data.max()
+
+        self.data = (self.data - min_val) / (max_val - min_val)
+        self.envelope_min = (self.envelope_min - min_val) / (max_val - min_val)
+        self.envelope_max = (self.envelope_max - min_val) / (max_val - min_val)
 
     def get_color_for_class(self, class_label):
         idx = np.where(self.unique_classes == class_label)[0][0]
@@ -145,13 +160,54 @@ class OpenGLPlot(QOpenGLWidget):
         glHint(GL_LINE_SMOOTH_HINT, GL_NICEST)
         
         glLineWidth(0.5)  # Set line width
-        for idx, row in self.data.iterrows():
-            r, g, b = self.get_color_for_class(self.classes[idx])
-            glColor4f(r, g, b, 0.5)
-            glBegin(GL_LINE_STRIP)
-            for i, value in enumerate(row):
-                glVertex2f(x_min + i * axis_gap, y_min + (y_max - y_min) * value)
-            glEnd()
+        if not self.show_envelope:
+            # Draw individual data lines
+            for idx, row in self.data.iterrows():
+                r, g, b = self.get_color_for_class(self.classes[idx])
+                glColor4f(r, g, b, 0.5)
+                glBegin(GL_LINE_STRIP)
+                for i, value in enumerate(row):
+                    glVertex2f(x_min + i * axis_gap, y_min + (y_max - y_min) * value)
+                glEnd()
+        else:
+            # Draw the envelope
+            for class_label in self.unique_classes:
+                r, g, b = self.get_color_for_class(class_label)
+                
+                # Draw the shaded envelope area using triangles
+                glColor4f(r, g, b, 0.2)  # Very slightly transparent for shading
+                
+                for i in range(self.data.shape[1] - 1):
+                    # Define the four points for this segment of the envelope
+                    top_left = (x_min + i * axis_gap, y_min + (y_max - y_min) * self.envelope_max.loc[class_label, self.data.columns[i]])
+                    top_right = (x_min + (i + 1) * axis_gap, y_min + (y_max - y_min) * self.envelope_max.loc[class_label, self.data.columns[i + 1]])
+                    bottom_left = (x_min + i * axis_gap, y_min + (y_max - y_min) * self.envelope_min.loc[class_label, self.data.columns[i]])
+                    bottom_right = (x_min + (i + 1) * axis_gap, y_min + (y_max - y_min) * self.envelope_min.loc[class_label, self.data.columns[i + 1]])
+                    
+                    # Draw two triangles to form the shaded envelope for this segment
+                    glBegin(GL_TRIANGLES)
+                    glVertex2f(*top_left)
+                    glVertex2f(*top_right)
+                    glVertex2f(*bottom_left)
+                    
+                    glVertex2f(*bottom_left)
+                    glVertex2f(*top_right)
+                    glVertex2f(*bottom_right)
+                    glEnd()
+                
+                # Draw the maximum envelope line
+                glColor4f(r, g, b, 0.5)
+                glBegin(GL_LINE_STRIP)
+                for i in range(self.data.shape[1]):
+                    glVertex2f(x_min + i * axis_gap, y_min + (y_max - y_min) * self.envelope_max.loc[class_label, self.data.columns[i]])
+                glEnd()
+
+                # Draw the minimum envelope line
+                glColor4f(r, g, b, 0.5)
+                glBegin(GL_LINE_STRIP)
+                for i in range(self.data.shape[1]):
+                    glVertex2f(x_min + i * axis_gap, y_min + (y_max - y_min) * self.envelope_min.loc[class_label, self.data.columns[i]])
+                glEnd()
 
         glEnable(GL_DEPTH_TEST)
 
@@ -179,6 +235,7 @@ class MainWindow(QMainWindow):
         self.load_csv_btn = QPushButton("Load CSV")
         self.load_csv_btn.clicked.connect(self.load_csv_file)
         self.toggle_envelope_btn = QPushButton("Toggle Envelope")
+        self.toggle_envelope_btn.clicked.connect(self.toggle_envelope)
 
         # Create a horizontal layout for buttons
         button_layout = QHBoxLayout()
@@ -216,6 +273,10 @@ class MainWindow(QMainWindow):
             # Load your CSV data here using file_name
             print(f"Loading {file_name}")
             self.opengl_widget.load_data(file_name)
+
+    def toggle_envelope(self):
+        self.opengl_widget.show_envelope = not self.opengl_widget.show_envelope
+        self.opengl_widget.update()  # Refresh the OpenGL view
 
 
 if __name__ == '__main__':
