@@ -1,7 +1,9 @@
 import sys
 from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget, QHBoxLayout, QFileDialog
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtGui import QPainter, QColor
+
 from OpenGL.GL import *
 
 import numpy as np
@@ -20,6 +22,19 @@ class OpenGLPlot(QOpenGLWidget):
         dataset = pd.read_csv(file_name)
         self.classes = dataset['class']
         self.data = dataset.drop(columns=['class'])
+        
+        self.dataset_name = file_name.split("/")[-1]  # Store just the filename
+        
+        # Combine the data and classes into a single DataFrame
+        combined = pd.concat([self.data, self.classes], axis=1)
+        
+        # Sort the combined DataFrame by the class labels
+        combined = combined.sort_values(by='class')
+        
+        # Split the sorted DataFrame back into data and classes
+        self.classes = combined['class']
+        self.data = combined.drop(columns=['class'])
+        
         self.unique_classes = self.classes.unique()
 
         # Generate unique colors for each class
@@ -53,7 +68,7 @@ class OpenGLPlot(QOpenGLWidget):
         num_axes = self.data.shape[1]
 
         # Define margins
-        x_margin = 0.1
+        x_margin = 0.2
         y_margin = 0.1
         x_min = -1 + x_margin
         x_max = 1 - x_margin
@@ -71,12 +86,71 @@ class OpenGLPlot(QOpenGLWidget):
             glVertex2f(x_min + i * axis_gap, y_max)
             glEnd()
 
-        # Draw data
+        # Start QPainter
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        painter.setPen(Qt.GlobalColor.black)
+        font = painter.font()
+        font.setPointSize(font.pointSize() - 1)  # Decrease font size by 1
+        painter.setFont(font)
+
+        # Positioning details
+        start_x = 10
+        start_y = 25
+        rect_size = 15
+        gap = 5
+
+        painter.drawText(start_x, start_y - 10, self.dataset_name)
+        for idx, class_label in enumerate(self.unique_classes):
+            r, g, b = [int(c * 255) for c in self.get_color_for_class(class_label)]
+            painter.setBrush(QColor(r, g, b))
+            
+            rect_x = int(start_x)
+            rect_y = int(start_y + (rect_size + gap) * idx)
+            painter.drawRect(rect_x, rect_y, rect_size, rect_size)
+
+            label = f"{class_label} ({(self.classes == class_label).sum()})"
+            text_x = int(start_x + rect_size + gap)
+            
+            text_rect = painter.fontMetrics().boundingRect(label)
+            
+            # Adjust the vertical positioning to be centered with the colored box
+            text_y = rect_y + (rect_size - text_rect.height()) // 2 + text_rect.height() - 3
+            
+            painter.drawText(text_x, text_y, label)
+        
+        # Draw axes and attribute names
+        attribute_names = self.data.columns.tolist()  # Get attribute names from the DataFrame
+        for i, attribute_name in enumerate(attribute_names):
+            glBegin(GL_LINES)
+            glVertex2f(x_min + i * axis_gap, y_min)
+            glVertex2f(x_min + i * axis_gap, y_max)
+            glEnd()
+            
+            # Calculate the width of the text string
+            text_width = painter.fontMetrics().horizontalAdvance(attribute_name)
+            
+            # Render attribute name below the axis using QPainter
+            text_x = int((x_min + i * axis_gap) * self.width() * 0.5 + self.width() * 0.5 - text_width / 2)
+            text_y = int(self.height() - 10)
+            painter.drawText(text_x, text_y, attribute_name)
+
+        # End QPainter
+        painter.end()
+
+        # Reset OpenGL states for drawing lines
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        glEnable(GL_LINE_SMOOTH)
+        glHint(GL_LINE_SMOOTH_HINT, GL_NICEST)
+        
+        glLineWidth(0.5)  # Set line width
         for idx, row in self.data.iterrows():
-            glColor3f(*self.get_color_for_class(self.classes[idx]))
+            r, g, b = self.get_color_for_class(self.classes[idx])
+            glColor4f(r, g, b, 0.5)
             glBegin(GL_LINE_STRIP)
             for i, value in enumerate(row):
-                glVertex2f(x_min + i * axis_gap, y_min + (y_max - y_min) * value)  # Adjusted plotting range
+                glVertex2f(x_min + i * axis_gap, y_min + (y_max - y_min) * value)
             glEnd()
 
         glEnable(GL_DEPTH_TEST)
@@ -122,6 +196,11 @@ class MainWindow(QMainWindow):
         central_widget = QWidget(self)
         central_widget.setLayout(layout)
         self.setCentralWidget(central_widget)
+
+    def keyPressEvent(self, event):
+        # Check for Escape key or Ctrl+W
+        if event.key() == Qt.Key.Key_Escape or (event.key() == Qt.Key.Key_W and event.modifiers() == Qt.KeyboardModifier.ControlModifier):
+            self.close()
 
     def center_on_screen(self):
         """Center the window on the screen."""
