@@ -290,6 +290,7 @@ class ModifiedOpenGLPlot(OpenGLPlot):
         # Attributes to store the mouse position and circle radius
         self.mouse_pos = None
         self.search_radius = 0.025
+        self.statistics = []
 
     def calculate_percentages_inside_rectangle(self):
         center_x, center_y = self.mouse_pos
@@ -325,8 +326,11 @@ class ModifiedOpenGLPlot(OpenGLPlot):
         total_counts = self.classes.value_counts()
         percentages = (class_counts / total_counts).fillna(0) * 100
 
+        self.statistics = []
         for class_name, percentage in percentages.items():
-            print(f"{class_name}: {percentage:.2f}%")
+            self.statistics.append(f"{class_name}: {percentage:.2f}%")
+        
+        self.update()
 
     def mouseMoveEvent(self, event):
         # Define margins
@@ -357,6 +361,23 @@ class ModifiedOpenGLPlot(OpenGLPlot):
         if self.mouse_pos:
             self.draw_rectangle(self.mouse_pos, self.search_radius)
             self.draw_crosshair(self.mouse_pos)
+        
+        painter = QPainter(self)
+    
+        # Set the painter properties like font, color, etc. if needed
+        painter.setPen(QColor(0, 0, 0))  # Setting the text color to black for instance
+        
+        # Calculate the position to start drawing the text. 
+        # For this example, I'll assume you want to start drawing 10 pixels from the top right corner.
+        start_x = self.width() - 100  # Assuming 100 pixels is sufficient for your text
+        start_y = 20
+        line_height = 15  # Adjust as needed
+        
+        for statistic in self.statistics:
+            painter.drawText(start_x, start_y, statistic)
+            start_y += line_height  # Move to the next line
+
+        painter.end()
 
     def draw_crosshair(self, center):
         """Draw a small crosshair at the center of the circle."""
