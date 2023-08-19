@@ -11,6 +11,47 @@ import pandas as pd
 
 import distinctipy as dp
 
+def draw_rectangle(center, search_radius_x, search_radius_y):
+    """Draw a filled rectangular region around the given center with the specified half widths."""
+    x, y = center
+    
+    # Calculate rectangle boundaries based on the two search radii
+    bottom_left_x = x - search_radius_x
+    bottom_left_y = y - search_radius_y
+    top_right_x = x + search_radius_x
+    top_right_y = y + search_radius_y
+
+    glColor4f(0.5, 0.5, 0.5, 0.5)  # Semi-transparent gray for shading
+    glRectf(bottom_left_x, bottom_left_y, top_right_x, top_right_y)
+
+def adjust_search_radii(key, search_radius_x, search_radius_y, step=0.01):
+    """
+    Adjust the search_radius_x and search_radius_y of the rectangular search region based on the key pressed.
+    
+    Args:
+    - key (str): Key pressed ('W', 'S', 'A', or 'D').
+    - search_radius_x (float): Current x search radius of the rectangular search region.
+    - search_radius_y (float): Current y search radius of the rectangular search region.
+    - step (float, optional): The step by which the search_radius is increased or decreased. Default is 2.5.
+    
+    Returns:
+    - tuple: New search_radius_x and search_radius_y values.
+    """
+    if key == 'W':
+        search_radius_y += step
+    elif key == 'S':
+        search_radius_y -= step
+    elif key == 'A':
+        search_radius_x -= step
+    elif key == 'D':
+        search_radius_x += step
+
+    # Ensure that search_radius_x and search_radius_y do not go below a minimum value (for instance, 5)
+    search_radius_x = max(search_radius_x, 0.01)
+    search_radius_y = max(search_radius_y, 0.01)
+
+    return search_radius_x, search_radius_y
+
 def compute_outcode(x, y, xmin, xmax, ymin, ymax):
     """Compute the outcode for a point (x, y) against a rectangle."""
     INSIDE = 0  # 0000
@@ -280,7 +321,6 @@ class OpenGLPlot(QOpenGLWidget):
 
         glEnable(GL_DEPTH_TEST)
 
-
     def resizeGL(self, w, h):
         # Set the viewport to take up the full canvas
         glViewport(0, 0, w, h)
@@ -292,7 +332,8 @@ class ModifiedOpenGLPlot(OpenGLPlot):
         
         # Attributes to store the mouse position and circle radius
         self.mouse_pos = None
-        self.search_radius = 0.025
+        self.search_radius_x = 0.025
+        self.search_radius_y = 0.025
         self.statistics = []
 
     def calculate_percentages_inside_rectangle(self):
@@ -301,10 +342,10 @@ class ModifiedOpenGLPlot(OpenGLPlot):
         axis_positions = np.linspace(-1, 1, axis_count)
 
         # Define the rectangle bounds based on center and search radius
-        rect_left = center_x - self.search_radius
-        rect_right = center_x + self.search_radius
-        rect_bottom = center_y - self.search_radius
-        rect_top = center_y + self.search_radius
+        rect_left = center_x - self.search_radius_x
+        rect_right = center_x + self.search_radius_x
+        rect_bottom = center_y - self.search_radius_y
+        rect_top = center_y + self.search_radius_y
 
         intersecting_lines = []
         
@@ -313,7 +354,6 @@ class ModifiedOpenGLPlot(OpenGLPlot):
             for i in range(axis_count - 1):
                 x0, y0 = axis_positions[i], row[i]
                 x1, y1 = axis_positions[i + 1], row[i + 1]
-
                 # Check if the line segment intersects the rectangle
                 if cohen_sutherland_line_clip(x0, y0, x1, y1, rect_left, rect_right, rect_bottom, rect_top):
                     intersects = True
@@ -334,6 +374,13 @@ class ModifiedOpenGLPlot(OpenGLPlot):
             self.statistics.append(f"{class_name}: {percentage:.2f}%")
         
         self.update()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.RightButton:
+            # Code to hide or remove the search rectangle
+            self.search_radius_x = 0  # This will effectively "remove" the rectangle by setting its size to zero
+            self.search_radius_y = 0
+            self.update()  # Refresh the OpenGL view
 
     def mouseMoveEvent(self, event):
         # Define margins
@@ -360,9 +407,9 @@ class ModifiedOpenGLPlot(OpenGLPlot):
         # Call the parent's paintGL method to draw the existing elements
         super().paintGL()
 
-        # If mouse_pos is not None, draw the circle
+        # If mouse_pos is not None, draw search rectangle
         if self.mouse_pos:
-            self.draw_rectangle(self.mouse_pos, self.search_radius)
+            draw_rectangle(self.mouse_pos, self.search_radius_x, self.search_radius_y)
             self.draw_crosshair(self.mouse_pos)
         
         painter = QPainter(self)
@@ -396,19 +443,6 @@ class ModifiedOpenGLPlot(OpenGLPlot):
         glVertex2f(center[0], center[1] + size)
         glEnd()
         glEnable(GL_DEPTH_TEST)
-
-    def draw_rectangle(self, center, half_side_length):
-        """Draw a filled square rectangle around the given center with the specified half side length, compensating for aspect ratio."""
-        x, y = center
-        
-        # Since the width is greater than the height, we'll adjust the height to appear correctly.
-        bottom_left_x = x - half_side_length
-        bottom_left_y = y - half_side_length
-        top_right_x = x + half_side_length
-        top_right_y = y + half_side_length
-
-        glColor4f(0.5, 0.5, 0.5, 0.5)  # Semi-transparent gray for shading
-        glRectf(bottom_left_x, bottom_left_y, top_right_x, top_right_y)
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -451,6 +485,19 @@ class MainWindow(QMainWindow):
         # Check for Escape key or Ctrl+W
         if event.key() == Qt.Key.Key_Escape or (event.key() == Qt.Key.Key_W and event.modifiers() == Qt.KeyboardModifier.ControlModifier):
             self.close()
+        elif event.key() in [Qt.Key.Key_W, Qt.Key.Key_S, Qt.Key.Key_A, Qt.Key.Key_D]:
+            # Adjust the search_radius based on the key pressed
+            key_map = {
+                Qt.Key.Key_W: 'W',
+                Qt.Key.Key_S: 'S',
+                Qt.Key.Key_A: 'A',
+                Qt.Key.Key_D: 'D'
+            }
+            pressed_key = key_map[event.key()]
+            new_search_radius_x, new_search_radius_y = adjust_search_radii(pressed_key, self.opengl_widget.search_radius_x, self.opengl_widget.search_radius_y)
+            self.opengl_widget.search_radius_x = new_search_radius_x
+            self.opengl_widget.search_radius_y = new_search_radius_y
+            self.opengl_widget.update()  # Refresh the OpenGL view
 
     def center_on_screen(self):
         """Center the window on the screen."""
