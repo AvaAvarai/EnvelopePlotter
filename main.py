@@ -382,9 +382,6 @@ class ModifiedOpenGLPlot(OpenGLPlot):
 
         # Renormalize the bounds to the normalized space
         norm_left, norm_right, norm_bottom, norm_top = self.renormalize_search_bounds(rect_left, rect_right, rect_bottom, rect_top)
-        
-        # Debug: Print the bounds of the rectangle
-        print(f"Renormalized Rectangle Bounds: Left: {norm_left:.3f}, Right: {norm_right:.3f}, Bottom: {norm_bottom:.3f}, Top: {norm_top:.3f}")
 
         intersecting_lines = []
         
@@ -396,8 +393,6 @@ class ModifiedOpenGLPlot(OpenGLPlot):
                 # Check if the line segment intersects the rectangle
                 if cohen_sutherland_line_clip(x0, y0, x1, y1, norm_left, norm_right, norm_bottom, norm_top):
                     intersects = True
-                    # Debug: Print the coordinates of the line segment that intersects with the rectangle
-                    print(f"Intersecting Line: ({x0:.3f}, {y0:.3f}) to ({x1:.3f}, {y1:.3f})")
                     break
 
             if intersects:
