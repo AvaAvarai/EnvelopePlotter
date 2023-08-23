@@ -129,7 +129,10 @@ class OpenGLPlot(QOpenGLWidget):
         # Additional storage for envelope minima and maxima
         self.envelope_min = pd.DataFrame()
         self.envelope_max = pd.DataFrame()
-
+        self.drawn_x_min = None
+        self.drawn_x_max = None
+        self.drawn_y_min = None
+        self.drawn_y_max = None
         self.show_envelope = False  # Initially set to not show the envelope
 
     def load_data(self, file_name):
@@ -277,7 +280,16 @@ class OpenGLPlot(QOpenGLWidget):
                 glColor4f(r, g, b, 0.5)
                 glBegin(GL_LINE_STRIP)
                 for i, value in enumerate(row):
-                    glVertex2f(x_min + i * axis_gap, y_min + (y_max - y_min) * value)
+                    x = x_min + i * axis_gap
+                    y = y_min + (y_max - y_min) * value
+
+                    # Capture bounds
+                    self.drawn_x_min = min(self.drawn_x_min or x, x)
+                    self.drawn_x_max = max(self.drawn_x_max or x, x)
+                    self.drawn_y_min = min(self.drawn_y_min or y, y)
+                    self.drawn_y_max = max(self.drawn_y_max or y, y)
+
+                    glVertex2f(x, y)
                 glEnd()
         else:
             # Draw the envelope
@@ -336,16 +348,43 @@ class ModifiedOpenGLPlot(OpenGLPlot):
         self.search_radius_y = 0.025
         self.statistics = []
 
+    def renormalize_search_bounds(self, left, right, bottom, top):
+        """
+        Convert search rectangle bounds from the drawn coordinate space to the normalized space.
+        
+        Parameters:
+            left, right, bottom, top (float): Bounds of the search rectangle in the drawn coordinate space.
+            
+        Returns:
+            tuple: Renormalized bounds (norm_left, norm_right, norm_bottom, norm_top) in the normalized space.
+        """
+        
+        # Renormalize the horizontal bounds:
+        norm_left = (left - self.drawn_x_min) / (self.drawn_x_max - self.drawn_x_min)
+        norm_right = (right - self.drawn_x_min) / (self.drawn_x_max - self.drawn_x_min)
+        
+        # Renormalize the vertical bounds:
+        norm_bottom = (bottom - self.drawn_y_min) / (self.drawn_y_max - self.drawn_y_min)
+        norm_top = (top - self.drawn_y_min) / (self.drawn_y_max - self.drawn_y_min)
+        
+        return (norm_left, norm_right, norm_bottom, norm_top)
+
     def calculate_percentages_inside_rectangle(self):
         center_x, center_y = self.mouse_pos
         axis_count = self.data.shape[1]
         axis_positions = np.linspace(-1, 1, axis_count)
-
-        # Define the rectangle bounds based on center and search radius
+        
+        # Calculate rectangle boundaries based on the two search radii
         rect_left = center_x - self.search_radius_x
         rect_right = center_x + self.search_radius_x
         rect_bottom = center_y - self.search_radius_y
         rect_top = center_y + self.search_radius_y
+
+        # Renormalize the bounds to the normalized space
+        norm_left, norm_right, norm_bottom, norm_top = self.renormalize_search_bounds(rect_left, rect_right, rect_bottom, rect_top)
+        
+        # Debug: Print the bounds of the rectangle
+        print(f"Renormalized Rectangle Bounds: Left: {norm_left:.3f}, Right: {norm_right:.3f}, Bottom: {norm_bottom:.3f}, Top: {norm_top:.3f}")
 
         intersecting_lines = []
         
@@ -355,8 +394,10 @@ class ModifiedOpenGLPlot(OpenGLPlot):
                 x0, y0 = axis_positions[i], row[i]
                 x1, y1 = axis_positions[i + 1], row[i + 1]
                 # Check if the line segment intersects the rectangle
-                if cohen_sutherland_line_clip(x0, y0, x1, y1, rect_left, rect_right, rect_bottom, rect_top):
+                if cohen_sutherland_line_clip(x0, y0, x1, y1, norm_left, norm_right, norm_bottom, norm_top):
                     intersects = True
+                    # Debug: Print the coordinates of the line segment that intersects with the rectangle
+                    print(f"Intersecting Line: ({x0:.3f}, {y0:.3f}) to ({x1:.3f}, {y1:.3f})")
                     break
 
             if intersects:
@@ -425,6 +466,18 @@ class ModifiedOpenGLPlot(OpenGLPlot):
         
         for statistic in self.statistics:
             painter.drawText(start_x, start_y, statistic)
+            start_y += line_height  # Move to the next line
+        if self.mouse_pos:
+            x, y = self.mouse_pos
+        else:
+            x, y = -1, -1
+        debug_info = [
+            f"({x:.2f}, {y:.2f})",
+            f"{self.search_radius_x}",
+            f"{self.search_radius_y}"
+        ]
+        for info in debug_info:
+            painter.drawText(start_x, start_y, info)
             start_y += line_height  # Move to the next line
 
         painter.end()
